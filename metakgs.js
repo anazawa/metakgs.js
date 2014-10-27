@@ -18,7 +18,7 @@
         callback( response.body(), response, request );
       }
       else {
-        callback( undefined, response, request );
+        callback( null, response, request );
       }
     });
   };
@@ -31,51 +31,70 @@
       var content = body && body.content;
       var link = body && body.link;
 
-      if ( link ) {
-        content = that.paginate( content, link, callback );
+      if ( link && content ) {
+        content = that.paginate(content, {
+          getLink: function(rel) {
+            return link[rel];
+          },
+          get: function(path, cb) {
+            that.getContent( path, cb || callback );
+          }
+        });
       }
 
       callback( content, response, request );
     });
   };
 
-  MetaKGS.prototype.paginate = function(prototype, link, callback) {
-    var that = this;
-    var content = Object.create( prototype );
+  MetaKGS.prototype.paginate = function(prototype, args) {
+    var object = Object.create( prototype );
+    var params = args || {};
 
-    content.get = function(path, cb) {
-      that.getContent( path, cb || callback );
+    object.get = params.get || function(path, callback) {
+      throw new Error("call to abstract method 'get'");
     };
 
-    content.hasPrev = function() {
-      return link.prev ? true : false;
+    object.getLink = params.getLink || function(rel) {
+      throw new Error("call to abstract method 'getLink'");
     };
 
-    content.hasNext = function() {
-      return link.next ? true : false;
+    object.isFirst = function() {
+      return !this.hasPrev();
     };
 
-    content.getFirst = function(cb) {
-      this.get( link.first, cb );
+    object.hasPrev = function() {
+      return this.getLink('prev') ? true : false;
     };
 
-    content.getPrev = function(cb) {
+    object.hasNext = function() {
+      return this.getLink('next') ? true : false;
+    };
+
+    object.isLast = function() {
+      return !this.hasNext();
+    };
+
+    object.getFirst = function(callback) {
+      this.get( this.getLink('first'), callback );
+    };
+
+    object.getPrev = function(callback) {
       if ( this.hasPrev() ) {
-        this.get( link.prev, cb );
+        this.get( this.getLink('prev'), callback );
       }
     };
 
-    content.getNext = function(cb) {
+    object.getNext = function(callback) {
       if ( this.hasNext() ) {
-        this.get( link.next, cb );
+        this.get( this.getLink('next'), callback );
       }
     };
 
-    content.getLast = function(cb) {
-      this.get( link.last, cb );
+    object.getLast = function(callback) {
+      this.get( this.getLink('last'), callback );
     };
  
-    return content;
+    return object;
   };
 
   MetaKGS.prototype.getArchives = function(args, callback) {
@@ -133,19 +152,19 @@
       requestCount++;
 
       if ( game && game.owner ) {
-        callback( game.owner.rank, response, request );
+        callback( game.owner.rank || '', response, request );
       }
       else if ( game ) {
         players = game.black.concat( game.white );
         for ( i = 0; i < players.length; i += 1 ) {
           if ( players[i].name === name ) {
-            callback( players[i].rank, response, request );
+            callback( players[i].rank || '', response, request );
             break;
           }
         }
       }
-      else if ( !archives || !archives.hasPrev() || requestCount === 6 ) {
-        callback( undefined, response, request );
+      else if ( !archives || archives.isFirst() || requestCount === 6 ) {
+        callback( null, response, request );
       }
       else {
         archives.getPrev();
@@ -225,18 +244,118 @@
     this.getContent( path.join('/'), callback );
   };
 
+  MetaKGS.prototype.getTournamentEntrantList = function(args, callback) {
+    this.getTournamentEntrants(args, function(entrants, response, request) {
+      callback( entrants && entrants.entrants, response, request );
+    });
+  };
+
+  MetaKGS.prototype.getTournamentRound = function(args, callback) {
+    var query = args || {};
+    var path = [ 'tournament' ];
+
+    if ( query.id && query.id > 0 ) {
+      path.push( Math.floor(query.id) );
+    }
+    else if ( query.hasOwnProperty('id') ) {
+      throw new Error("'id' is invalid: '"+query.id+"'");
+    }
+    else {
+      throw new Error("'id' is required");
+    }
+
+    path.push( 'round' );
+
+    if ( query.round && query.round > 0 ) {
+      path.push( Math.floor(query.round) );
+    }
+    else if ( query.hasOwnProperty('round') ) {
+      throw new Error("'round' is invalid: '"+query.round+"'");
+    }
+    else {
+      throw new Error("'round' is required");
+    }
+
+    this.getContent( path.join('/'), callback );
+  };
+
+  MetaKGS.prototype.getTournamentGames = function(args, callback) {
+    this.getTournamentRound(args, function(round, response, request) {
+      callback( round && round.games, response, request );
+    });
+  };
+
+  MetaKGS.prototype.getTournamentByes = function(args, callback) {
+    this.getTournamentRound(args, function(round, response, request) {
+      callback( round && round.byes, response, request );
+    });
+  };
+
+  (function() {
+    this.archives         = this.getArchives;
+    this.games            = this.getGames;
+    this.top100           = this.getTop100;
+    this.top100Players    = this.getTop100Players;
+    this.tourns           = this.getTournaments;
+    this.tournList        = this.getTournamentList;
+    this.tourn            = this.getTournament;
+    this.tournRounds      = this.getTournamentRounds;
+    this.tournRound       = this.getTournamentRound;
+    this.tournGames       = this.getTournamentGames;
+    this.tournByes        = this.getTournamentByes;
+    this.tournEntrants    = this.getTournamentEntrants;
+    this.tournEntrantList = this.getTournamentEntrantList;
+  }).apply(MetaKGS.prototype);
+
   /*
    * HTTP Request
    */
 
   MetaKGS.Request = function(method, url, headers, body) {
+    var h = headers || {};
+
     this.method = method;
     this.uri = url;
+    this.headers = {};
     this.body = body;
+
+    for ( field in h ) {
+      if ( h.hasOwnProperty(field) ) {
+        this.setHeader( field, h[value] );
+      }
+    }
+  };
+
+  MetaKGS.Request.prototype.getHeader = function(field) {
+    var values = this.headers[ field.toLowerCase() ];
+    return values && values.join(', ');
+  };
+
+  MetaKGS.Request.prototype.setHeader = function(field, value) {
+    this.headers[ field.toLowerCase() ] = [ value ];
+  };
+
+  MetaKGS.Request.prototype.pushHeader = function(field, value) {
+    var key = field.toLowerCase();
+    this.headers[key] = this.headers[key] || [];
+    this.headers[key].push( value );
+  };
+
+  MetaKGS.Request.prototype.eachHeader = function(callback) {
+    var i, field, values;
+    for ( field in this.headers ) {
+      if ( this.headers.hasOwnProperty(field) ) {
+        values = this.headers[field];
+        for ( i = 0; i < values.length; i++ ) {
+          callback( field, values[i] );
+        }
+      }
+    }
   };
 
   MetaKGS.Request.prototype.send = function(callback) {
     var xhr = new XMLHttpRequest();
+    var body = typeof this.body === 'undefined' ? null : this.body;
 
     xhr.onreadystatechange = function() {
       if ( this.readyState === 4 ) {
@@ -246,7 +365,11 @@
 
     xhr.open( this.method, this.uri );
 
-    xhr.send( this.body );
+    this.eachHeader(function(field, value) {
+      xhr.setRequestHeader( field, value );
+    });
+
+    xhr.send( body );
   };
 
   /*
@@ -281,16 +404,16 @@
     return this.code() >= 500 && this.code() < 600;
   };
 
-  MetaKGS.Response.prototype.header_get = function(field) {
+  MetaKGS.Response.prototype.getHeader = function(field) {
     return this.xhr.getResponseHeader( field );
   };
 
-  MetaKGS.Response.prototype.header_stringify = function() {
+  MetaKGS.Response.prototype.stringifyHeader = function() {
     return this.xhr.getAllResponseHeaders();
   };
 
   MetaKGS.Response.prototype.contentType = function() {
-    var contentType = this.header_get('Content-Type') || '';
+    var contentType = this.getHeader('Content-Type') || '';
     var mediaType = contentType.split(/;\s*/)[0];
     return mediaType.replace(/\s+/, '').toLowerCase();
   };
