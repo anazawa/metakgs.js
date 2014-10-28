@@ -1,443 +1,431 @@
-(function() {
-  "use strict";
+(function(global) {
 
-  var MetaKGS = function(args) {
-    this.apiEndpoint = 'http://metakgs.org/api';
+  var metakgs = function(args) {
+    var that = {};
+    var spec = args || {};
+    var http = spec.http || metakgs.http();
+
+    that.http = function() {
+      return http;
+    };
+
+    that.archives = function(user) {
+      return metakgs.resource.archives({
+        http: this.http(),
+        user: user
+      });
+    };
+
+    that.top100 = function() {
+      return metakgs.resource.top100({
+        http: this.http()
+      });
+    };
+
+    that.tournament = function(id) {
+      return metakgs.resource.tournament({
+        http: this.http(),
+        id: id
+      });
+    };
+
+    return that;
   };
 
-  MetaKGS.prototype.uriFor = function(path) {
-    return path.match(/^https?:\/\//) ? path : this.apiEndpoint+'/'+path;
+  metakgs.resource = function(args) {
+    var that = {};
+    var spec = args || {};
+    var http = spec.http || metakgs.http();
+
+    that.http = function() {
+      return http;
+    };
+
+    that.getContent = function(path, callback) {
+      var that = this;
+
+      this.http().get(path, function(body, response, request) {
+        var content = body && body.content;
+        var link = body && body.link;
+
+        if ( link && content ) {
+          content = metakgs.resource.paginate(content, {
+            getLink: function(rel) {
+              return link[rel];
+            },
+            get: function(path, cb) {
+              that.getContent( path, cb || callback );
+            }
+          });
+        }
+
+        callback( content, response, request );
+      });
+    };
+
+    return that;
   };
 
-  MetaKGS.prototype.get = function(path, callback) {
-    var url = this.uriFor( path );
-    var request = new MetaKGS.Request( 'GET', url );
+  metakgs.resource.paginate = function(prototype, args) {
+    var that = Object.create( prototype );
+    var spec = args || {};
 
-    request.send(function(response) {
-      if ( response.code() === 200 ) {
-        callback( response.body(), response, request );
-      }
-      else {
-        callback( null, response, request );
-      }
-    });
-  };
-
-  MetaKGS.prototype.getContent = function(path, callback) {
-    var that = this;
-    var url = this.uriFor( path );
-
-    this.get(url, function(body, response, request) {
-      var content = body && body.content;
-      var link = body && body.link;
-
-      if ( link && content ) {
-        content = that.paginate(content, {
-          getLink: function(rel) {
-            return link[rel];
-          },
-          get: function(path, cb) {
-            that.getContent( path, cb || callback );
-          }
-        });
-      }
-
-      callback( content, response, request );
-    });
-  };
-
-  MetaKGS.prototype.paginate = function(prototype, args) {
-    var object = Object.create( prototype );
-    var params = args || {};
-
-    object.get = params.get || function(path, callback) {
+    that.get = spec.get || function(path, callback) {
       throw new Error("call to abstract method 'get'");
     };
 
-    object.getLink = params.getLink || function(rel) {
+    that.getLink = spec.getLink || function(rel) {
       throw new Error("call to abstract method 'getLink'");
     };
 
-    object.isFirst = function() {
+    that.isFirst = function() {
       return !this.hasPrev();
     };
 
-    object.hasPrev = function() {
+    that.hasPrev = function() {
       return this.getLink('prev') ? true : false;
     };
 
-    object.hasNext = function() {
+    that.hasNext = function() {
       return this.getLink('next') ? true : false;
     };
 
-    object.isLast = function() {
+    that.isLast = function() {
       return !this.hasNext();
     };
 
-    object.getFirst = function(callback) {
+    that.getFirst = function(callback) {
       this.get( this.getLink('first'), callback );
     };
 
-    object.getPrev = function(callback) {
+    that.getPrev = function(callback) {
       if ( this.hasPrev() ) {
         this.get( this.getLink('prev'), callback );
       }
     };
 
-    object.getNext = function(callback) {
+    that.getNext = function(callback) {
       if ( this.hasNext() ) {
         this.get( this.getLink('next'), callback );
       }
     };
 
-    object.getLast = function(callback) {
+    that.getLast = function(callback) {
       this.get( this.getLink('last'), callback );
     };
  
-    return object;
+    return that;
   };
 
-  MetaKGS.prototype.getArchives = function(args, callback) {
-    var query = args || {};
-    var path = [ 'archives' ];
+  metakgs.resource.archives = function(args) {
+    var that = metakgs.resource(args);
+    var spec = args || {};
+    var user = spec.user;
 
-    if ( query.user && query.user.match(/^[a-zA-Z][a-zA-Z0-9]{0,9}$/) ) {
-      path.push( query.user );
-    }
-    else if ( query.hasOwnProperty('user') ) {
-      throw new Error("'user' is invalid: '"+query.user+"'");
-    }
-    else {
-      throw new Error("'user' is required");
+    if ( typeof user !== 'string' || !user.match(/^[a-z][a-z\d]{0,9}$/i) ) {
+      throw new Error("'user' is invalid: '"+user+"'");
     }
 
-    if ( query.year && query.year >= 2000 ) {
-      path.push( Math.floor(query.year) );
-    }
-    else if ( query.hasOwnProperty('year') ) {
-      throw new Error("'year' is invalid: '"+query.year+"'");
-    }
-
-    if ( query.month && query.month >= 1 && query.month <= 12 ) {
-      if ( path.length === 3 ) {
-        path.push( Math.floor(query.month) );
-      } else {
-        throw new Error("'year' is required");
-      }
-    }
-    else if ( query.hasOwnProperty('month') ) {
-      throw new Error("'month' is invalid: '"+query.month+"'");
-    }
-
-    this.getContent( path.join('/'), callback );
-  };
-
-  MetaKGS.prototype.getGames = function(args, callback) {
-    this.getArchives(args, function(archives, response, request) {
-      callback( archives && archives.games, response, request );
-    });
-  };
-
-  MetaKGS.prototype.getLatestRankByName = function(name, callback) {
-    var requestCount = 0;
-
-    this.getArchives({
-      user: name
-    },
-    function(archives, response, request) {
-      var games = archives && archives.games;
-      var game = games && archives.games[0];
-      var i, players;
-
-      requestCount++;
-
-      if ( game && game.owner ) {
-        callback( game.owner.rank || '', response, request );
-      }
-      else if ( game ) {
-        players = game.black.concat( game.white );
-        for ( i = 0; i < players.length; i += 1 ) {
-          if ( players[i].name === name ) {
-            callback( players[i].rank || '', response, request );
-            break;
-          }
-        }
-      }
-      else if ( !archives || archives.isFirst() || requestCount === 6 ) {
-        callback( null, response, request );
-      }
-      else {
-        archives.getPrev();
-      }
-    });
-  };
-
-  MetaKGS.prototype.getTop100 = function(args, callback) {
-    this.getContent( 'top100', callback );
-  };
-
-  MetaKGS.prototype.getTop100Players = function(args, callback) {
-    this.getTop100(args, function(top100, response, request) {
-      callback( top100 && top100.players, response, request );
-    });
-  };
-
-  MetaKGS.prototype.getTournaments = function(args, callback) {
-    var query = args || {};
-    var path = [ 'tournaments' ];
-
-    if ( query.year && query.year >= 2000 ) {
-      path.push( Math.floor(query.year) );
-    }
-    else if ( query.hasOwnProperty('year') ) {
-      throw new Error("'year' is invalid: '"+query.year+"'");
-    }
-
-    this.getContent( path.join('/'), callback );
-  };
-
-  MetaKGS.prototype.getTournamentList = function(args, callback) {
-    this.getTournaments(args, function(tournaments, response, request) {
-      callback( tournaments && tournaments.tournaments, response, request );
-    });
-  };
-
-  MetaKGS.prototype.getTournament = function(args, callback) {
-    var query = args || {};
-    var path = [ 'tournament' ];
-
-    if ( query.id && query.id > 0 ) {
-      path.push( Math.floor(query.id) );
-    }
-    else if ( query.hasOwnProperty('id') ) {
-      throw new Error("'id' is invalid: '"+query.id+"'");
-    }
-    else {
-      throw new Error("'id' is required");
-    }
-
-    this.getContent( path.join('/'), callback );
-  };
-
-  MetaKGS.prototype.getTournamentRounds = function(args, callback) {
-    this.getTournament(args, function(tournament, response, request) {
-      callback( tournament && tournament.rounds, response, request );
-    });
-  };
-
-  MetaKGS.prototype.getTournamentEntrants = function(args, callback) {
-    var query = args || {};
-    var path = [ 'tournament' ];
-
-    if ( query.id && query.id > 0 ) {
-      path.push( Math.floor(query.id) );
-    }
-    else if ( query.hasOwnProperty('id') ) {
-      throw new Error("'id' is invalid: '"+query.id+"'");
-    }
-    else {
-      throw new Error("'id' is required");
-    }
-
-    path.push( 'entrants' );
-
-    this.getContent( path.join('/'), callback );
-  };
-
-  MetaKGS.prototype.getTournamentEntrantList = function(args, callback) {
-    this.getTournamentEntrants(args, function(entrants, response, request) {
-      callback( entrants && entrants.entrants, response, request );
-    });
-  };
-
-  MetaKGS.prototype.getTournamentRound = function(args, callback) {
-    var query = args || {};
-    var path = [ 'tournament' ];
-
-    if ( query.id && query.id > 0 ) {
-      path.push( Math.floor(query.id) );
-    }
-    else if ( query.hasOwnProperty('id') ) {
-      throw new Error("'id' is invalid: '"+query.id+"'");
-    }
-    else {
-      throw new Error("'id' is required");
-    }
-
-    path.push( 'round' );
-
-    if ( query.round && query.round > 0 ) {
-      path.push( Math.floor(query.round) );
-    }
-    else if ( query.hasOwnProperty('round') ) {
-      throw new Error("'round' is invalid: '"+query.round+"'");
-    }
-    else {
-      throw new Error("'round' is required");
-    }
-
-    this.getContent( path.join('/'), callback );
-  };
-
-  MetaKGS.prototype.getTournamentGames = function(args, callback) {
-    this.getTournamentRound(args, function(round, response, request) {
-      callback( round && round.games, response, request );
-    });
-  };
-
-  MetaKGS.prototype.getTournamentByes = function(args, callback) {
-    this.getTournamentRound(args, function(round, response, request) {
-      callback( round && round.byes, response, request );
-    });
-  };
-
-  (function() {
-    this.archives         = this.getArchives;
-    this.games            = this.getGames;
-    this.top100           = this.getTop100;
-    this.top100Players    = this.getTop100Players;
-    this.tourns           = this.getTournaments;
-    this.tournList        = this.getTournamentList;
-    this.tourn            = this.getTournament;
-    this.tournRounds      = this.getTournamentRounds;
-    this.tournRound       = this.getTournamentRound;
-    this.tournGames       = this.getTournamentGames;
-    this.tournByes        = this.getTournamentByes;
-    this.tournEntrants    = this.getTournamentEntrants;
-    this.tournEntrantList = this.getTournamentEntrantList;
-  }).apply(MetaKGS.prototype);
-
-  /*
-   * HTTP Request
-   */
-
-  MetaKGS.Request = function(method, url, headers, body) {
-    var h = headers || {};
-
-    this.method = method;
-    this.uri = url;
-    this.headers = {};
-    this.body = body;
-
-    for ( field in h ) {
-      if ( h.hasOwnProperty(field) ) {
-        this.setHeader( field, h[value] );
-      }
-    }
-  };
-
-  MetaKGS.Request.prototype.getHeader = function(field) {
-    var values = this.headers[ field.toLowerCase() ];
-    return values && values.join(', ');
-  };
-
-  MetaKGS.Request.prototype.setHeader = function(field, value) {
-    this.headers[ field.toLowerCase() ] = [ value ];
-  };
-
-  MetaKGS.Request.prototype.pushHeader = function(field, value) {
-    var key = field.toLowerCase();
-    this.headers[key] = this.headers[key] || [];
-    this.headers[key].push( value );
-  };
-
-  MetaKGS.Request.prototype.eachHeader = function(callback) {
-    var i, field, values;
-    for ( field in this.headers ) {
-      if ( this.headers.hasOwnProperty(field) ) {
-        values = this.headers[field];
-        for ( i = 0; i < values.length; i++ ) {
-          callback( field, values[i] );
-        }
-      }
-    }
-  };
-
-  MetaKGS.Request.prototype.send = function(callback) {
-    var xhr = new XMLHttpRequest();
-    var body = typeof this.body === 'undefined' ? null : this.body;
-
-    xhr.onreadystatechange = function() {
-      if ( this.readyState === 4 ) {
-        callback( new MetaKGS.Response(this) );
-      }
+    that.user = function() {
+      return user;
     };
 
-    xhr.open( this.method, this.uri );
+    that.get = function(args, callback) {
+      var query = args || {};
+      var year = query.year;
+      var month = query.month;
+      var path = [ 'archives', this.user() ];
 
-    this.eachHeader(function(field, value) {
-      xhr.setRequestHeader( field, value );
-    });
+      if ( typeof year !== 'undefined' ) {
+        if ( metakgs.util.isInteger(year) && year >= 2000 ) {
+          path.push( year );
+        }
+        else {
+          throw new Error("'year' is invalid: '"+year+"'");
+        }
+      }
 
-    xhr.send( body );
+      if ( typeof month !== 'undefined' ) {
+        if ( path.length === 3 ) {
+          if ( metakgs.util.isInteger(month) && month >= 1 && month <= 12 ) {
+            path.push( month );
+          }
+          else {
+            throw new Error("'month' is invalid: '"+month+"'");
+          }
+        }
+        else {
+          throw new Error("'year' is required");
+        }
+      }
+
+      this.getContent( path.join('/'), callback );
+    };
+
+    that.getGames = function(args, callback) {
+      this.get(args, function(archives, response, request) {
+        callback( archives && archives.games, response, request );
+      });
+    };
+
+    that.getLatestRank = function(callback) {
+      var user = this.user();
+      var requestCount = 0;
+
+      this.get({}, function(archives, response, request) {
+        var games = archives && archives.games;
+        var game = games && archives.games[0];
+        var i, players;
+
+        requestCount++;
+
+        if ( game && game.owner ) {
+          callback( game.owner.rank || '', response, request );
+        }
+        else if ( game ) {
+          players = game.black.concat( game.white );
+          for ( i = 0; i < players.length; i += 1 ) {
+            if ( players[i].name === user ) {
+              callback( players[i].rank || '', response, request );
+              break;
+            }
+          }
+        }
+        else if ( !archives || archives.isFirst() || requestCount === 6 ) {
+          callback( null, response, request );
+        }
+        else {
+          archives.getPrev();
+        }
+      });
+    };
+
+    return that;
   };
 
-  /*
-   * HTTP Response 
-   */
+  metakgs.resource.top100 = function( args ) {
+    var that = metakgs.resource(args);
 
-  MetaKGS.Response = function(xhr) {
-    this.xhr = xhr;
+    that.get = function(callback) {
+      this.getContent( 'top100', callback );
+    };
+
+    that.getPlayers = function(callback) {
+      this.get(function(top100, response, request) {
+        callback( top100 && top100.players, response, request );
+      });
+    };
+
+    return that;
   };
 
-  MetaKGS.Response.prototype.code = function() {
-    return this.xhr.status;
-  };
+  metakgs.resource.tournament = function(args) {
+    var that = metakgs.resource(args);
+    var spec = args || {};
+    var id = spec.id;
 
-  MetaKGS.Response.prototype.isInformation = function() {
-    return this.code() >= 100 && this.code() < 200;
-  };
-
-  MetaKGS.Response.prototype.isSuccess = function() {
-    return this.code() >= 200 && this.code() < 300;
-  };
-
-  MetaKGS.Response.prototype.isRedirection = function() {
-    return this.code() >= 300 && this.code() < 400;
-  };
-
-  MetaKGS.Response.prototype.isClientError = function() {
-    return this.code() >= 400 && this.code() < 500;
-  };
-
-  MetaKGS.Response.prototype.isServerError = function() {
-    return this.code() >= 500 && this.code() < 600;
-  };
-
-  MetaKGS.Response.prototype.getHeader = function(field) {
-    return this.xhr.getResponseHeader( field );
-  };
-
-  MetaKGS.Response.prototype.stringifyHeader = function() {
-    return this.xhr.getAllResponseHeaders();
-  };
-
-  MetaKGS.Response.prototype.contentType = function() {
-    var contentType = this.getHeader('Content-Type') || '';
-    var mediaType = contentType.split(/;\s*/)[0];
-    return mediaType.replace(/\s+/, '').toLowerCase();
-  };
-
-  MetaKGS.Response.prototype.body = function() {
-    var body = this.xhr.responseText;
-
-    if ( this.contentType() === 'application/json' ) {
-      body = JSON.parse( body );
+    if ( !metakgs.util.isInteger(id) || id < 1 ) {
+      throw new Error("'id' is invalid: '"+id+"'");
     }
 
-    return body;
+    that.id = function() {
+      return id;
+    };
+
+    that.get = function(callback) {
+      var path = [ 'tournament', this.id() ];
+      this.getContent( path.join('/'), callback );
+    };
+
+    that.getRounds = function(callback) {
+      this.get(function(content, response, request) {
+        callback( content && content.rounds, response, request );
+      });
+    };
+
+    that.getEntrants = function(callback) {
+      var path = [ 'tournament', this.id(), 'entrants' ];
+      this.getContent(path.join('/'), function(content, response, request) {
+        callback( content && content.entrants, response, request );
+      });
+    };
+
+    that.round = function(round) {
+      return metakgs.resource.tournamentRound({
+        http: this.http(),
+        id: this.id(),
+        round: round
+      });
+    };
+
+    return that;
   };
 
-  MetaKGS.noConflict = (function() {
-    var _MetaKGS = window.MetaKGS;
+  metakgs.resource.tournamentRound = function(args) {
+    var that = metakgs.resource(args);
+    var spec = args || {};
+    var id = spec.id;
+    var round = spec.round;
+
+    if ( !metakgs.util.isInteger(id) || id < 1 ) {
+      throw new Error("'id' is invalid: '"+id+"'");
+    }
+
+    if ( !metakgs.util.isInteger(round) || round < 1 ) {
+      throw new Error("'round' is invalid: '"+round+"'");
+    }
+
+    that.id = function() {
+      return id;
+    };
+
+    that.round = function() {
+      return round;
+    };
+
+    that.get = function(callback) {
+      var path = [ 'tournament', this.id(), 'round', this.round() ];
+      this.getContent( path.join('/'), callback );
+    };
+
+    that.getGames = function(callback) {
+      this.get(function(content, response, request) {
+        callback( content && content.games, response, request );
+      });
+    };
+
+    that.getByes = function(callback) {
+      this.get(function(content, response, request) {
+        callback( content && content.byes, response, request );
+      });
+    };
+
+    return that;
+  };
+
+  metakgs.http = function(args) {
+    var that = {};
+    var spec = args || {};
+    var baseURL = spec.baseURL || 'http://metakgs.org/api';
+
+    that.baseURL = function() {
+      return baseURL;
+    };
+
+    that.uriFor = function(path) {
+      return path.indexOf('//') >= 0 ? path : this.baseURL()+'/'+path;
+    };
+
+    that.buildRequest = function() {
+      return metakgs.http.request.apply( null, arguments );
+    };
+
+    that.get = function(path, callback) {
+      var url = this.uriFor( path );
+      var request = this.buildRequest( 'GET', url );
+
+      request.send(function(response) {
+        if ( response.code() === 200 ) {
+          callback( response.body(), response, request );
+        }
+        else {
+          callback( null, response, request );
+        }
+      });
+    };
+
+    return that;
+  };
+
+  metakgs.http.request = function(method, uri, headers, body) {
+    var that = {};
+
+    that.method = function() {
+      return method;
+    };
+
+    that.uri = function() {
+      return uri;
+    };
+
+    that.buildResponse = function(xhr) {
+      return metakgs.http.response(xhr);
+    };
+
+    that.send = function(callback) {
+      var that = this;
+      var xhr = new XMLHttpRequest();
+
+      xhr.onreadystatechange = function() {
+        if ( this.readyState === 4 ) {
+          callback( that.buildResponse(this) );
+        }
+      };
+
+      xhr.open( this.method(), this.uri() );
+
+      xhr.send();
+    };
+
+    return that;
+  };
+
+  metakgs.http.response = function(xhr) {
+    var that = {};
+
+    that.xhr = function() {
+      return xhr;
+    };
+
+    that.code = function() {
+      return this.xhr().status;
+    };
+
+    that.headerGet = function(field) {
+      return this.xhr().getResponseHeader(field);
+    };
+
+    that.contentType = function() {
+      var contentType = this.headerGet('Content-Type') || '';
+      var mediaType = contentType.split(/;\s*/)[0].replace(/\s+/, '');
+      return mediaType.toLowerCase();
+    };
+
+    that.body = function() {
+      var body = this.xhr().responseText;
+
+      switch ( this.contentType() ) {
+        case 'application/json':
+          body = JSON.parse( body );
+          break;
+      }
+
+      return body;
+    };
+
+    return that;
+  };
+
+  metakgs.util = {};
+
+  metakgs.util.isNumber = function(value) {
+    return typeof value === 'number' && isFinite(value);
+  };
+
+  metakgs.util.isInteger = function(value) {
+    return metakgs.util.isNumber(value) && Math.floor(value) === value;
+  };
+
+  metakgs.noConflict = (function() {
+    var orig = global.metakgs;
 
     return function() {
-      window.MetaKGS = _MetaKGS;
-      return MetaKGS;
+      global.metakgs = orig;
+      return metakgs;
     };
   })();
 
-  window.MetaKGS = MetaKGS;
+  global.metakgs = metakgs;
 
-})();
+})(this);
 
