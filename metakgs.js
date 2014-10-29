@@ -1,29 +1,30 @@
 (function(global) {
+  'use strict';
 
-  var metakgs = function(args) {
+  var MetaKGS = function(args) {
     var that = {};
     var spec = args || {};
-    var http = spec.http || metakgs.http();
+    var http = spec.http || MetaKGS.HTTP();
 
     that.http = function() {
       return http;
     };
 
     that.archives = function(user) {
-      return metakgs.resource.archives({
+      return MetaKGS.Resource.Archives({
         http: this.http(),
         user: user
       });
     };
 
     that.top100 = function() {
-      return metakgs.resource.top100({
+      return MetaKGS.Resource.Top100({
         http: this.http()
       });
     };
 
     that.tournament = function(id) {
-      return metakgs.resource.tournament({
+      return MetaKGS.Resource.Tournament({
         http: this.http(),
         id: id
       });
@@ -32,10 +33,10 @@
     return that;
   };
 
-  metakgs.resource = function(args) {
+  MetaKGS.Resource = function(args) {
     var that = {};
     var spec = args || {};
-    var http = spec.http || metakgs.http();
+    var http = spec.http || MetaKGS.HTTP();
 
     that.http = function() {
       return http;
@@ -49,7 +50,7 @@
         var link = body && body.link;
 
         if ( link && content ) {
-          content = metakgs.resource.paginate(content, {
+          content = MetaKGS.Resource.Paginate(content, {
             getLink: function(rel) {
               return link[rel];
             },
@@ -66,7 +67,7 @@
     return that;
   };
 
-  metakgs.resource.paginate = function(prototype, args) {
+  MetaKGS.Resource.Paginate = function(prototype, args) {
     var that = Object.create( prototype );
     var methods = args || {};
 
@@ -117,8 +118,8 @@
     return that;
   };
 
-  metakgs.resource.archives = function(args) {
-    var that = metakgs.resource(args);
+  MetaKGS.Resource.Archives = function(args) {
+    var that = MetaKGS.Resource(args);
     var spec = args || {};
     var user = spec.user;
 
@@ -137,7 +138,7 @@
       var path = [ 'archives', this.user() ];
 
       if ( typeof year !== 'undefined' ) {
-        if ( metakgs.util.isInteger(year) && year >= 2000 ) {
+        if ( MetaKGS.Util.isInteger(year) && year >= 2000 ) {
           path.push( year );
         }
         else {
@@ -147,7 +148,7 @@
 
       if ( typeof month !== 'undefined' ) {
         if ( path.length === 3 ) {
-          if ( metakgs.util.isInteger(month) && month >= 1 && month <= 12 ) {
+          if ( MetaKGS.Util.isInteger(month) && month >= 1 && month <= 12 ) {
             path.push( month );
           }
           else {
@@ -203,8 +204,8 @@
     return that;
   };
 
-  metakgs.resource.top100 = function( args ) {
-    var that = metakgs.resource(args);
+  MetaKGS.Resource.Top100 = function( args ) {
+    var that = MetaKGS.Resource(args);
 
     that.get = function(callback) {
       this.getContent( 'top100', callback );
@@ -219,12 +220,12 @@
     return that;
   };
 
-  metakgs.resource.tournament = function(args) {
-    var that = metakgs.resource(args);
+  MetaKGS.Resource.Tournament = function(args) {
+    var that = MetaKGS.Resource(args);
     var spec = args || {};
     var id = spec.id;
 
-    if ( !metakgs.util.isInteger(id) || id < 1 ) {
+    if ( !MetaKGS.Util.isInteger(id) || id < 1 ) {
       throw new Error("'id' is invalid: '"+id+"'");
     }
 
@@ -251,7 +252,7 @@
     };
 
     that.round = function(round) {
-      return metakgs.resource.tournamentRound({
+      return MetaKGS.Resource.TournamentRound({
         http: this.http(),
         id: this.id(),
         round: round
@@ -261,17 +262,17 @@
     return that;
   };
 
-  metakgs.resource.tournamentRound = function(args) {
-    var that = metakgs.resource(args);
+  MetaKGS.Resource.TournamentRound = function(args) {
+    var that = MetaKGS.Resource(args);
     var spec = args || {};
     var id = spec.id;
     var round = spec.round;
 
-    if ( !metakgs.util.isInteger(id) || id < 1 ) {
+    if ( !MetaKGS.Util.isInteger(id) || id < 1 ) {
       throw new Error("'id' is invalid: '"+id+"'");
     }
 
-    if ( !metakgs.util.isInteger(round) || round < 1 ) {
+    if ( !MetaKGS.Util.isInteger(round) || round < 1 ) {
       throw new Error("'round' is invalid: '"+round+"'");
     }
 
@@ -303,7 +304,7 @@
     return that;
   };
 
-  metakgs.http = function(args) {
+  MetaKGS.HTTP = function(args) {
     var that = {};
     var spec = args || {};
     var baseURL = spec.baseURL || 'http://metakgs.org/api';
@@ -317,7 +318,7 @@
     };
 
     that.buildRequest = function() {
-      return metakgs.http.request.apply( null, arguments );
+      return MetaKGS.HTTP.Request.apply( null, arguments );
     };
 
     that.get = function(path, callback) {
@@ -325,14 +326,15 @@
       var request = this.buildRequest( 'GET', url );
 
       request.send(function(response) {
-        callback( response.code() === 200 ? response.body() : null, response );
+        var body = response.code() === 200 ? response.body() : null;
+        callback( body, response );
       });
     };
 
     return that;
   };
 
-  metakgs.http.request = function(method, uri, headers, body) {
+  MetaKGS.HTTP.Request = function(method, uri, headers, body) {
     var that = {};
 
     that.method = function() {
@@ -344,7 +346,7 @@
     };
 
     that.buildResponse = function(xhr) {
-      return metakgs.http.response({
+      return MetaKGS.HTTP.Response({
         xhr: xhr,
         request: this
       });
@@ -368,7 +370,7 @@
     return that;
   };
 
-  metakgs.http.response = function(args) {
+  MetaKGS.HTTP.Response = function(args) {
     var that = {};
     var spec = args || {};
     var xhr = args.xhr;
@@ -386,12 +388,12 @@
       return this.xhr().status;
     };
 
-    that.headerGet = function(field) {
+    that.getHeader = function(field) {
       return this.xhr().getResponseHeader(field);
     };
 
     that.contentType = function() {
-      var contentType = this.headerGet('Content-Type') || '';
+      var contentType = this.getHeader('Content-Type') || '';
       var mediaType = contentType.split(/;\s*/)[0].replace(/\s+/, '');
       return mediaType.toLowerCase();
     };
@@ -411,26 +413,26 @@
     return that;
   };
 
-  metakgs.util = {};
+  MetaKGS.Util = {};
 
-  metakgs.util.isNumber = function(value) {
+  MetaKGS.Util.isNumber = function(value) {
     return typeof value === 'number' && isFinite(value);
   };
 
-  metakgs.util.isInteger = function(value) {
-    return metakgs.util.isNumber(value) && Math.floor(value) === value;
+  MetaKGS.Util.isInteger = function(value) {
+    return MetaKGS.Util.isNumber(value) && Math.floor(value) === value;
   };
 
-  metakgs.noConflict = (function() {
-    var orig = global.metakgs;
+  MetaKGS.noConflict = (function() {
+    var orig = global.MetaKGS;
 
     return function() {
-      global.metakgs = orig;
-      return metakgs;
+      global.MetaKGS = orig;
+      return MetaKGS;
     };
   })();
 
-  global.metakgs = metakgs;
+  global.MetaKGS = MetaKGS;
 
 })(this);
 
