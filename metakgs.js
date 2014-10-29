@@ -44,7 +44,7 @@
     that.getContent = function(path, callback) {
       var that = this;
 
-      this.http().get(path, function(body, response, request) {
+      this.http().get(path, function(body, response) {
         var content = body && body.content;
         var link = body && body.link;
 
@@ -59,7 +59,7 @@
           });
         }
 
-        callback( content, response, request );
+        callback( content, response );
       });
     };
 
@@ -68,13 +68,13 @@
 
   metakgs.resource.paginate = function(prototype, args) {
     var that = Object.create( prototype );
-    var spec = args || {};
+    var methods = args || {};
 
-    that.get = spec.get || function(path, callback) {
+    that.get = methods.get || function(path, callback) {
       throw new Error("call to abstract method 'get'");
     };
 
-    that.getLink = spec.getLink || function(rel) {
+    that.getLink = methods.getLink || function(rel) {
       throw new Error("call to abstract method 'getLink'");
     };
 
@@ -163,8 +163,8 @@
     };
 
     that.getGames = function(args, callback) {
-      this.get(args, function(archives, response, request) {
-        callback( archives && archives.games, response, request );
+      this.get(args, function(archives, response) {
+        callback( archives && archives.games, response );
       });
     };
 
@@ -172,27 +172,27 @@
       var user = this.user();
       var requestCount = 0;
 
-      this.get({}, function(archives, response, request) {
+      this.get({}, function(archives, response) {
         var games = archives && archives.games;
-        var game = games && archives.games[0];
+        var game = games && games[0];
         var i, players;
 
         requestCount++;
 
         if ( game && game.owner ) {
-          callback( game.owner.rank || '', response, request );
+          callback( game.owner.rank || '', response );
         }
         else if ( game ) {
           players = game.black.concat( game.white );
           for ( i = 0; i < players.length; i += 1 ) {
             if ( players[i].name === user ) {
-              callback( players[i].rank || '', response, request );
+              callback( players[i].rank || '', response );
               break;
             }
           }
         }
         else if ( !archives || archives.isFirst() || requestCount === 6 ) {
-          callback( null, response, request );
+          callback( null, response );
         }
         else {
           archives.getPrev();
@@ -211,8 +211,8 @@
     };
 
     that.getPlayers = function(callback) {
-      this.get(function(top100, response, request) {
-        callback( top100 && top100.players, response, request );
+      this.get(function(top100, response) {
+        callback( top100 && top100.players, response );
       });
     };
 
@@ -238,15 +238,15 @@
     };
 
     that.getRounds = function(callback) {
-      this.get(function(content, response, request) {
-        callback( content && content.rounds, response, request );
+      this.get(function(content, response) {
+        callback( content && content.rounds, response );
       });
     };
 
     that.getEntrants = function(callback) {
       var path = [ 'tournament', this.id(), 'entrants' ];
-      this.getContent(path.join('/'), function(content, response, request) {
-        callback( content && content.entrants, response, request );
+      this.getContent(path.join('/'), function(content, response) {
+        callback( content && content.entrants, response );
       });
     };
 
@@ -289,14 +289,14 @@
     };
 
     that.getGames = function(callback) {
-      this.get(function(content, response, request) {
-        callback( content && content.games, response, request );
+      this.get(function(content, response) {
+        callback( content && content.games, response );
       });
     };
 
     that.getByes = function(callback) {
-      this.get(function(content, response, request) {
-        callback( content && content.byes, response, request );
+      this.get(function(content, response) {
+        callback( content && content.byes, response );
       });
     };
 
@@ -325,12 +325,7 @@
       var request = this.buildRequest( 'GET', url );
 
       request.send(function(response) {
-        if ( response.code() === 200 ) {
-          callback( response.body(), response, request );
-        }
-        else {
-          callback( null, response, request );
-        }
+        callback( response.code() === 200 ? response.body() : null, response );
       });
     };
 
@@ -349,7 +344,10 @@
     };
 
     that.buildResponse = function(xhr) {
-      return metakgs.http.response(xhr);
+      return metakgs.http.response({
+        xhr: xhr,
+        request: this
+      });
     };
 
     that.send = function(callback) {
@@ -370,11 +368,18 @@
     return that;
   };
 
-  metakgs.http.response = function(xhr) {
+  metakgs.http.response = function(args) {
     var that = {};
+    var spec = args || {};
+    var xhr = args.xhr;
+    var request = args.request;
 
     that.xhr = function() {
       return xhr;
+    };
+
+    that.request = function() {
+      return request;
     };
 
     that.code = function() {
